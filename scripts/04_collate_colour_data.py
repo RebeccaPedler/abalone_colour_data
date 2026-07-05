@@ -1,39 +1,14 @@
 #!/usr/bin/env python3
 """
-collate_colour_data.py
------------------------
+Script 04: Generate per-image colour correction factors from ColorChecker cards
+=================================================================================
 Joins the outputs of colour_correction_factors.py, segment_lips.py and
 extract_lip_colour.py into one Excel file, one row per image_id, and applies
 the per-image Lab correction factors to the raw lip colour means.
 
-Join key is the original photo's filename stem (e.g. "IMG_2076"):
-  - correction_factors.csv                    -> image_id column, as-is
-  - summary.csv (segment_lips.py)             -> stem of the 'image' path column
-  - Whole_Color_Measurements_pivoted.xlsx     -> image_ID column, as-is
-    (extract_lip_colour.py already strips the "_lip" suffix so these line up)
-
-HSB and RGB are deliberately left out of this file — only CIELAB.
-
-Output columns:
-    image_id, lip_segmentation_status, lip_pct_of_frame,
-    correction_status, correction_quality, correction_rotation,
-    correction_orientation, n_patches,
-    L_slope, L_intercept, L_r2, a_slope, a_intercept, a_r2,
-    b_slope, b_intercept, b_r2, dE_before, dE_after,
-    uncorrected_L, uncorrected_a, uncorrected_b,
-    corrected_L, corrected_a, corrected_b
-
-This is an outer join: an image missing from any one input still appears
-(with blanks) rather than silently disappearing. Check the printed warning
-and the blank cells before treating a row as final — a blank usually means
-the checker wasn't detected in that image, or the lip segmentation failed.
-
 Usage:
-    python collate_colour_data.py \\
-        --corrections correction_factors.csv \\
-        --segmentation summary.csv \\
-        --colour-data Whole_Color_Measurements_pivoted.xlsx \\
-        --output collated_colour_data.xlsx
+   python collate_colour_data.py --corrections correction_factors.csv --segmentation summary.csv 
+   --colour-data Whole_Color_Measurements_pivoted.xlsx --output collated_colour_data.xlsx
 
 Requirements:
     pip install pandas openpyxl
