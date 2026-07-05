@@ -1,56 +1,15 @@
 #!/usr/bin/env python3
 """
-abalone_morphometrics.py  –  v4.0
-===================================
-Batch-measures abalone from lightbox JPEG images.
+Script 05: Generate per-image colour correction factors from ColorChecker cards
+=================================================================================
+Batch-measures abalone from images using the ColourChecker as a scale (each patch is 12mm x 12mm)
 
-Supports TWO photo layouts, auto-detected per image:
-  Layout A ("side_by_side"): vertical black divider, card and abalone in
-            opposite left/right halves (card side auto-detected).
-  Layout B ("stacked"):      horizontal black divider near the top of frame,
-            card and abalone both below it, abalone position varies anywhere
-            in the lower region (not just under the card).
+Usage:
+python abalone_morphometrics_4.py --images  "path\to\your\images" --output  "path\to\your\images\abalone_measurements.csv" --vis_dir "path\to\your\images\abalone_annotated"
 
-Setup / Installation
---------------------
+Install the required packages if not already:
     pip install opencv-python numpy colour-science colour-checker-detection
 
-Pipeline
---------
-1.  Load JPEG (grey/white board background, Calibrite ColorChecker Classic,
-    thick black divider strip in either orientation).
-2.  Detect the divider's orientation (vertical or horizontal) and position.
-3.  Detect which side/region of the divider holds the ColorChecker card by
-    testing candidate regions for colour-patch matches, rather than assuming
-    a fixed side.
-4.  Compute px/mm from patch spacing (6 patches x 12 mm along long dimension).
-5.  Segment the abalone from the region opposite/below the card using HSV
-    thresholds calibrated from ground-truth:
-      (V < 75) OR (S > 30), AND (V > 15)
-    -- abalone tissue is darker and more colourful than the neutral grey board.
-6.  Fit a minimum-area rotated bounding rectangle -> length & width (mm).
-7.  Compute filled-contour area (mm^2).
-8.  Hard-exclude any candidate contour whose bounding box overlaps the card
-    region — prevents ColorChecker patches being measured as abalone tissue.
-9.  Save an annotated visualisation.
-10. Append results to a CSV. Measurements outside the plausible size range
-    (< 60 mm or > 130 mm) are flagged with a CHECK comment in the CSV for
-    manual review rather than silently accepted.
-
-Usage (Windows)
----------------
-cd C:\\Users\\RebeccaPedler\\Documents
-python abalone_morphometrics_4.py ^
-    --images  "C:\\Users\\RebeccaPedler\\Documents\\measurement validation" ^
-    --output  "C:\\Users\\RebeccaPedler\\Documents\\measurement validation\\abalone_measurements.csv" ^
-    --vis_dir "C:\\Users\\RebeccaPedler\\Documents\\measurement validation\\abalone_annotated"
-
-Optional flags
---------------
---scale_mm      Real-world span of the ruler (mm).  Default = 123
---ext           Comma-separated extensions to glob.  Default = jpg,jpeg
---min_area_px   Min contour area (px2) to be an abalone.  Default = 50000
---debug         Also save intermediate mask images.
 """
 
 import argparse
@@ -64,24 +23,17 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
 RULER_REAL_MM        = 123
 MIN_DIVIDER_FRAC     = 0.01   # divider strip width/height as a fraction of
 MAX_DIVIDER_FRAC     = 0.12   # the image's relevant dimension (generous bounds)
 DIVIDER_DARK_THRESH  = 0.4    # fraction of a row/col that must be "dark" pixels
 
-# Plausible length range for greenlip abalone (mm). Measurements outside
-# this range are flagged in the CSV for manual review — they are not dropped.
+# Plausible length range for greenlip abalone (mm). Change this according to your population
 LENGTH_MIN_MM = 60
 LENGTH_MAX_MM = 130
 
-
-# ===========================================================================
-# 1.  DIVIDER DETECTION  (orientation + position, auto-detected)
-# ===========================================================================
+# DIVIDER DETECTION  (orientation + position, auto-detected)
 
 def _find_contiguous_runs(bool_1d):
     """Return list of (start, end_inclusive, length) for contiguous True runs."""
@@ -100,25 +52,11 @@ def _find_contiguous_runs(bool_1d):
 
 
 def detect_divider(img_bgr):
-    """
-    Detect the black divider strip's orientation and position.
-
-    Tests both axes independently using a contiguous-run filter (not just a
-    threshold), since other dark regions in frame (ceiling edges, shadows,
-    card gridlines) can also exceed the darkness threshold without being
-    the genuine divider strip.
-
-    Returns a dict:
-      {"orientation": "vertical"|"horizontal", "start": int, "end": int}
-    "start"/"end" are column indices for vertical, row indices for horizontal.
-    Falls back to a vertical divider at the image's horizontal midpoint if
-    nothing valid is found (preserves old behaviour for edge cases).
-    """
     h, w = img_bgr.shape[:2]
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     _, dark = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
 
-    # --- Vertical strip check (scan columns) ---
+    # Vertical strip check (scan columns)
     col_frac   = dark.sum(axis=0).astype(float) / (255.0 * h)
     col_smooth = np.convolve(col_frac, np.ones(31) / 31, mode='same')
     v_runs     = _find_contiguous_runs(col_smooth > DIVIDER_DARK_THRESH)
@@ -126,7 +64,7 @@ def detect_divider(img_bgr):
                   if MIN_DIVIDER_FRAC * w <= r[2] <= MAX_DIVIDER_FRAC * w]
     best_v     = max(v_runs, key=lambda r: r[2]) if v_runs else None
 
-    # --- Horizontal strip check (scan rows) ---
+    # Horizontal strip check (scan rows)
     row_frac   = dark.sum(axis=1).astype(float) / (255.0 * w)
     row_smooth = np.convolve(row_frac, np.ones(31) / 31, mode='same')
     h_runs     = _find_contiguous_runs(row_smooth > DIVIDER_DARK_THRESH)
@@ -135,8 +73,6 @@ def detect_divider(img_bgr):
     best_h     = max(h_runs, key=lambda r: r[2]) if h_runs else None
 
     # Prefer whichever axis actually found a valid, well-sized run.
-    # (In practice these are mutually exclusive across the two known rigs,
-    # but if both somehow match, take the more confident/longer run.)
     if best_v and not best_h:
         return {"orientation": "vertical", "start": best_v[0], "end": best_v[1]}
     if best_h and not best_v:
@@ -147,20 +83,11 @@ def detect_divider(img_bgr):
         return {"orientation": "horizontal", "start": best_h[0], "end": best_h[1]}
 
     # Fallback: nothing detected confidently — assume vertical at midpoint
-    # (matches old default behaviour rather than failing the image outright).
     return {"orientation": "vertical", "start": w // 2 - 1, "end": w // 2}
 
 
-# ===========================================================================
 # 1b.  CARD-SIDE DETECTION  (auto-detect which region holds the ColorChecker)
-# ===========================================================================
-
 def _quick_patch_count(region_bgr):
-    """
-    Cheap colour-patch counter used only to decide WHICH region the card is
-    in. Reuses the same colour bands as pixels_per_mm's patch detector, but
-    just counts matches rather than measuring them precisely.
-    """
     if region_bgr is None or region_bgr.size == 0:
         return 0
     hsv = cv2.cvtColor(region_bgr, cv2.COLOR_BGR2HSV)
@@ -196,17 +123,6 @@ def _quick_patch_count(region_bgr):
 
 
 def detect_layout(img_bgr, divider):
-    """
-    Given the detected divider, work out the full layout for this image:
-      - which side/region holds the card
-      - which side/region holds the abalone
-      - the pixel bounding box to search for each
-
-    Returns a dict with keys:
-      "type"        : "side_by_side" | "stacked"
-      "card_box"    : (x0, y0, x1, y1)  region to search for the colour card
-      "abalone_box" : (x0, y0, x1, y1)  region to search for the abalone
-    """
     h, w = img_bgr.shape[:2]
     MARGIN = 80  # px buffer to clear the divider strip itself
 
@@ -223,9 +139,6 @@ def detect_layout(img_bgr, divider):
             card_box, abalone_box = left_box, right_box
         else:
             card_box, abalone_box = right_box, left_box
-
-        # Pull the abalone search box in from the divider by MARGIN so the
-        # divider strip itself never gets picked up as part of the mask.
         ax0, ay0, ax1, ay1 = abalone_box
         if ax0 == 0:
             ax1 = max(ax1 - MARGIN, ax0 + 1)
@@ -236,19 +149,9 @@ def detect_layout(img_bgr, divider):
         return {"type": "side_by_side", "card_box": card_box, "abalone_box": abalone_box}
 
     else:
-        # Layout B: stacked. Card and abalone are both on the same side of
-        # the frame (left in observed examples) below the divider; the
-        # area below the divider is searched in full for both, since the
-        # card sits near the top of that region and the abalone can be
-        # anywhere lower down. We split crudely into "upper-lower" and
-        # "rest-of-lower" by finding the card first, then searching
-        # everything below the card's bottom edge (plus margin) for the
-        # abalone — this matches the variable abalone placement observed.
         below_y0 = min(divider["end"] + MARGIN, h - 1)
         below_box = (0, below_y0, w, h)
-
-        # Find the card within the "below divider" region precisely enough
-        # to know its bottom edge, so the abalone search can start clear of it.
+      
         below_region = img_bgr[below_y0:h, 0:w]
         card_box, card_bottom_y = _locate_card_bottom_in_region(below_region, below_y0)
 
@@ -259,20 +162,6 @@ def detect_layout(img_bgr, divider):
 
 
 def _locate_card_bottom_in_region(region_bgr, y_offset):
-    """
-    Within a region known to contain the card, find the card's approximate
-    bounding box (in full-image coordinates) using the same patch detector,
-    so we know where it ends and can search below it for the abalone.
-
-    Stray blobs elsewhere in the region (e.g. the abalone's own tissue
-    colour can coincidentally match one of the patch HSV bands) are
-    rejected by clustering on patch CENTRES around the median position and
-    discarding anything implausibly far away, rather than trusting the raw
-    min/max extent of every match.
-
-    Returns (card_box, card_bottom_y_full_image_coords).
-    Falls back to the top third of the region if no patches are found.
-    """
     h, w = region_bgr.shape[:2]
     hsv = cv2.cvtColor(region_bgr, cv2.COLOR_BGR2HSV)
     H, S, V = hsv[:, :, 0].astype(float), hsv[:, :, 1].astype(float), hsv[:, :, 2].astype(float)
@@ -312,10 +201,6 @@ def _locate_card_bottom_in_region(region_bgr, y_offset):
     centres = np.array([(xb + bw / 2.0, yb + bh / 2.0) for xb, yb, bw, bh in boxes])
     median_centre = np.median(centres, axis=0)
 
-    # A real ColorChecker card's patches all sit within a few patch-widths of
-    # each other. Use the median patch size to set a generous "same cluster"
-    # radius, then drop any candidate further than that from the median
-    # centre — this is what rejects a stray match out in the abalone region.
     sizes = np.array([(bw + bh) / 2.0 for _, _, bw, bh in boxes])
     typical_size = np.median(sizes)
     cluster_radius = typical_size * 6.0   # card spans ~6 patches across
@@ -337,15 +222,7 @@ def _locate_card_bottom_in_region(region_bgr, y_offset):
     card_box_full = (x0, y_offset + y0, x1, y_offset + y1)
     return card_box_full, y_offset + y1
 
-
-# ===========================================================================
-# 2.  SCALE CALIBRATION — via ColourChecker detection library
-# ===========================================================================
-#
-# Uses the colour_checker_detection library to locate the Calibrite
-# ColorChecker Classic card and compute px/mm from its patch spacing.
-# Each patch is PATCH_SIZE_MM mm; the card has N_PATCHES_LONG patches
-# along its long dimension.  Tries all 4 rotations to handle flipped cards.
+# SCALE CALIBRATION — via ColourChecker detection library
 
 PATCH_SIZE_MM  = 12.0   # physical size of one patch (mm)
 N_PATCHES_LONG = 6      # patches along the long card dimension
@@ -354,22 +231,6 @@ N_PATCHES_LONG = 6      # patches along the long card dimension
 def pixels_per_mm(img_bgr, card_box,
                   ruler_real_mm=RULER_REAL_MM,
                   debug_dir=None, stem=""):
-    """
-    Return (px_per_mm, patch_centres) by directly measuring individual
-    ColorChecker patches within card_box (x0, y0, x1, y1) in full-image
-    coordinates. card_box is determined per-image by detect_layout(), since
-    the card can appear on either side of the divider (or above/below it).
-
-    Targets five well-separated colours (yellow, cyan, magenta, green, orange)
-    and measures the bounding-box side length of each detected square patch.
-    Each patch is physically PATCH_SIZE_MM x PATCH_SIZE_MM.
-    Uses the median patch size to reject fragments or partial detections.
-
-    Returns (px_per_mm, quad_pts) where quad_pts is a (4,2) int32 array
-    enclosing all detected patch centres, in FULL-IMAGE coordinates
-    (for visualisation).
-    Raises ValueError if fewer than 2 patches are detected.
-    """
     cx0, cy0, cx1, cy1 = card_box
     region = img_bgr[cy0:cy1, cx0:cx1]
 
@@ -406,7 +267,7 @@ def pixels_per_mm(img_bgr, card_box,
             xb, yb, bw, bh = cv2.boundingRect(c)
             if not (MIN_PX < bw < MAX_PX and MIN_PX < bh < MAX_PX):
                 continue
-            if not (0.70 < bw / bh < 1.30):        # must be roughly square
+            if not (0.70 < bw / bh < 1.30):        
                 continue
             if cv2.contourArea(c) < (MIN_PX ** 2) * 0.5:
                 continue
@@ -418,12 +279,10 @@ def pixels_per_mm(img_bgr, card_box,
             f"Only {len(patch_sizes)} colour patch(es) found in card region "
             f"{card_box} — check that the ColorChecker card was located correctly.")
 
-    # Median is robust against partial patches at card edges
     px_per_mm = float(np.median(patch_sizes)) / PATCH_SIZE_MM
 
     region_h, region_w = region.shape[:2]
 
-    # Build a convex hull around patch centres for the card overlay
     if len(patch_centres) >= 3:
         pts        = np.array(patch_centres, dtype=np.int32)
         # Add generous padding so the overlay covers the full card body
@@ -436,47 +295,15 @@ def pixels_per_mm(img_bgr, card_box,
                               [x1c, y1c], [x0c, y1c]], dtype=np.int32)
     else:
         quad_pts = np.array(patch_centres, dtype=np.int32)
-
-    # Offset back to full-image coordinates before returning
     quad_pts = quad_pts + np.array([cx0, cy0], dtype=np.int32)
 
     return px_per_mm, quad_pts
 
-
-# ===========================================================================
-# 3.  ABALONE SEGMENTATION
-# ===========================================================================
+# ABALONE SEGMENTATION
 
 def segment_abalone(img_bgr, search_box, near_edge, card_box,
                     min_area_px=50_000,
                     debug_dir=None, stem=""):
-    """
-    Segment the abalone from the grey board within search_box.
-
-    Thresholds calibrated from ground-truth red annotations:
-      True abalone:  S mean=94,  V mean=75-84  (colourful, dark)
-      Nacre/water:   S mean=22,  V mean=120     (neutral grey, bright)
-
-    Two-pass approach:
-      Pass 1: High-confidence mask  (S>35) AND (V<110) AND (V>15)
-              Captures colourful shell/tissue, excludes white nacre and wet board.
-      Pass 2: Within the bounding region of Pass 1, apply a slightly wider
-              threshold to recover any shell edges missed by strict V<110.
-      Final:  Convex hull to remove water tendrils and irregular edges.
-
-    Card-overlap exclusion:
-      Any candidate contour whose axis-aligned bounding box overlaps card_box
-      by more than CARD_OVERLAP_THRESH of the contour's own bounding area is
-      rejected outright. This prevents ColorChecker patches from being
-      measured as abalone when the search region leaks into the card area.
-
-    search_box : (x0, y0, x1, y1) in full-image coordinates.
-    near_edge  : "left" | "right" | "top" | "bottom" — edge adjacent to divider.
-    card_box   : (x0, y0, x1, y1) in full-image coordinates — the card region
-                 to exclude from candidate contours.
-
-    Returns (contour_full_coords, full_mask) or (None, None).
-    """
     h, w = img_bgr.shape[:2]
     x0, y0, x1, y1 = search_box
     roi = img_bgr[y0:y1, x0:x1]
@@ -489,7 +316,7 @@ def segment_abalone(img_bgr, search_box, near_edge, card_box,
     k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
     k_open  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (10, 10))
 
-    # ── PASS 1: high-confidence pixels ───────────────────────────────────────
+    # PASS 1: high-confidence pixels 
     # S>35 = colourful shell/lip/tissue
     # V<110 = excludes bright nacre rim (nacre V mean=120)
     # V>15  = excludes dark outer frame
@@ -509,7 +336,7 @@ def segment_abalone(img_bgr, search_box, near_edge, card_box,
     anchor_mask = np.zeros((roi_h, roi_w), np.uint8)
     cv2.drawContours(anchor_mask, [anchor], -1, 255, cv2.FILLED)
 
-    # ── PASS 2: wider threshold inside the anchor region ─────────────────────
+    # PASS 2: wider threshold inside the anchor region 
     search_region = cv2.dilate(anchor_mask, np.ones((40, 40), np.uint8))
     mask_w = (((S > 20) & (V < 120) & (V > 15)) & (search_region > 0)).astype(np.uint8) * 255
     mask_w = cv2.morphologyEx(mask_w, cv2.MORPH_CLOSE, k_close)
@@ -522,14 +349,9 @@ def segment_abalone(img_bgr, search_box, near_edge, card_box,
     if not contours:
         return None, None
 
-    # ── SELECT best contour ───────────────────────────────────────────────────
-    # Fraction of a candidate's bounding-box area that may overlap the card
-    # region before the contour is rejected as "measuring the card, not the
-    # abalone". Set low (5 %) to catch IMG_6357-style failures while still
-    # allowing occasional edge-of-frame coincidences.
+    # SELECT best contour 
     CARD_OVERLAP_THRESH = 0.05
 
-    # Unpack card_box into full-image coordinates for overlap checks below.
     cb_x0, cb_y0, cb_x1, cb_y1 = card_box
 
     valid = []
@@ -550,9 +372,7 @@ def segment_abalone(img_bgr, search_box, near_edge, card_box,
         xc_full = xc + x0
         yc_full = yc + y0
 
-        # ── Card-overlap exclusion ────────────────────────────────────────────
-        # Compute the intersection of the contour's full-image bounding box
-        # with the card bounding box.
+        # Card-overlap exclusion 
         ix0 = max(xc_full, cb_x0)
         iy0 = max(yc_full, cb_y0)
         ix1 = min(xc_full + cntw, cb_x1)
@@ -565,11 +385,6 @@ def segment_abalone(img_bgr, search_box, near_edge, card_box,
                       f"overlap with card region (likely card patches, not abalone).")
                 continue
 
-        # Exclude contours hugging the edge nearest the divider/card — this
-        # used to be a hardcoded "xc <= 10" (left edge) check; it now checks
-        # whichever edge of the ROI is adjacent to the divider, since that
-        # edge can be left/right/top depending on layout. The "too wide/tall"
-        # sanity check is generalised the same way.
         if near_edge == "left":
             if rw > roi_w * 0.90 or xc <= 10:
                 continue
@@ -589,9 +404,8 @@ def segment_abalone(img_bgr, search_box, near_edge, card_box,
         return None, None
 
     best      = max(valid, key=cv2.contourArea)
-    best_hull = cv2.convexHull(best)   # convex hull removes water tendrils
-
-    # Offset back to full-image coordinates
+    best_hull = cv2.convexHull(best)   
+  
     best_hull[:, :, 0] += x0
     best_hull[:, :, 1] += y0
 
@@ -600,10 +414,7 @@ def segment_abalone(img_bgr, search_box, near_edge, card_box,
 
     return best_hull, full_mask
 
-
-# ===========================================================================
-# 4.  MEASUREMENT
-# ===========================================================================
+# MEASUREMENT
 
 def measure_abalone(contour, mask, px_mm):
     """Return dict with length_mm, width_mm, area_mm2, rect, box_pts."""
@@ -621,10 +432,7 @@ def measure_abalone(contour, mask, px_mm):
         "box_pts":   cv2.boxPoints(rect).astype(int),
     }
 
-
-# ===========================================================================
-# 5.  VISUALISATION
-# ===========================================================================
+# VISUALISATION
 
 def save_annotated(img_bgr, contour, meas, divider, px_mm, out_path,
                    card_quad=None):
@@ -636,24 +444,21 @@ def save_annotated(img_bgr, contour, meas, divider, px_mm, out_path,
     thick = max(2, int(w / 1500))
     lh    = int(55 * fsc)
 
-    # ── Divider line — orientation-aware ─────────────────────────────────────
+    # Divider line 
     divider_mid = (divider["start"] + divider["end"]) // 2
     if divider["orientation"] == "vertical":
         cv2.line(vis, (divider_mid, 0), (divider_mid, h), (255, 180, 0), 3)
     else:
         cv2.line(vis, (0, divider_mid), (w, divider_mid), (255, 180, 0), 3)
 
-    # ── ColorChecker card overlay ─────────────────────────────────────────────
+    # ColorChecker card overlay 
     if card_quad is not None:
         pts = card_quad.reshape((-1, 1, 2))
-        # Filled semi-transparent highlight
         overlay = vis.copy()
         cv2.fillPoly(overlay, [pts], (255, 200, 0))          # amber fill
         cv2.addWeighted(overlay, 0.25, vis, 0.75, 0, vis)    # 25% opacity
-        # Solid border
         cv2.polylines(vis, [pts], isClosed=True, color=(255, 200, 0),
                       thickness=max(3, thick + 1))
-        # Label — positioned above the top-left corner of the quad
         lbl_x = int(card_quad[:, 0].min())
         lbl_y = int(card_quad[:, 1].min()) - int(20 * fsc)
         lbl_y = max(lbl_y, int(40 * fsc))
@@ -663,7 +468,7 @@ def save_annotated(img_bgr, contour, meas, divider, px_mm, out_path,
         cv2.putText(vis, scale_lbl, (lbl_x, lbl_y),
                     font, fsc * 0.85, (255, 200, 0), thick, cv2.LINE_AA)
 
-    # ── Abalone contour + bounding box ───────────────────────────────────────
+    # Abalone contour + bounding box 
     cv2.drawContours(vis, [contour],         -1, (0, 230, 60),  4)
     cv2.drawContours(vis, [meas["box_pts"]], -1, (0, 220, 255), 3)
 
@@ -682,7 +487,7 @@ def save_annotated(img_bgr, contour, meas, divider, px_mm, out_path,
         cv2.putText(vis, lbl, (cx, ypos),
                     font, fsc, (0, 255, 200), thick, cv2.LINE_AA)
 
-    # ── Scale bar ─────────────────────────────────────────────────────────────
+    # Scale bar 
     bar_mm = 20
     bar_px = int(bar_mm * px_mm)
     bx, by = 60, h - 80
@@ -693,10 +498,7 @@ def save_annotated(img_bgr, contour, meas, divider, px_mm, out_path,
 
     cv2.imwrite(out_path, vis)
 
-
-# ===========================================================================
-# 6.  PER-IMAGE PIPELINE
-# ===========================================================================
+# PER-IMAGE PIPELINE
 
 def process_image(img_path, vis_dir, ruler_real_mm, min_area_px, debug):
     stem    = Path(img_path).stem
@@ -718,12 +520,8 @@ def process_image(img_path, vis_dir, ruler_real_mm, min_area_px, debug):
         print(f"  [WARN] Scale error ({stem}, layout={layout['type']}): {exc}")
         return None
 
-    # Work out which edge of the abalone search box sits against the
-    # divider/card, so segment_abalone excludes contours hugging that edge
-    # (this used to be hardcoded to "left edge"; it now depends on layout).
     ax0, ay0, ax1, ay1 = layout["abalone_box"]
     if layout["type"] == "side_by_side":
-        # abalone box is whichever side did NOT get the card
         near_edge = "left" if ax0 == 0 else "right"
     else:  # stacked
         near_edge = "top"  # abalone box always starts below card/divider
@@ -737,10 +535,8 @@ def process_image(img_path, vis_dir, ruler_real_mm, min_area_px, debug):
 
     meas = measure_abalone(contour, mask, px_mm)
 
-    # ── Plausibility check ────────────────────────────────────────────────────
+    # Plausibility check 
     # Flag measurements outside the expected size range for greenlip abalone.
-    # Flagged rows are still written to CSV — they need manual review, not
-    # silent deletion. Check the annotated image for the flagged image_ID.
     length = meas["length_mm"]
     if length < LENGTH_MIN_MM or length > LENGTH_MAX_MM:
         check_flag = (f"CHECK: length {length} mm outside expected range "
@@ -770,10 +566,7 @@ def process_image(img_path, vis_dir, ruler_real_mm, min_area_px, debug):
         "check":           check_flag,
     }
 
-
-# ===========================================================================
-# 7.  MAIN
-# ===========================================================================
+# MAIN
 
 def main():
     ap = argparse.ArgumentParser(
