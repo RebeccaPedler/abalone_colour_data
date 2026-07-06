@@ -107,7 +107,7 @@ python scripts/04_collate_colour_data.py \
     --corrections test_run/correction_factors.csv \
     --segmentation test_run/images/lip_cutouts/summary.csv \
     --colour-data Whole_Color_Measurements.xlsx \
-    --output test_run/collated_colour_data.csv
+    --output test_run/collated_colour_data.xlsx
 ```
 
 **5. Measure abalone length, width, and area (independent of steps 1–4)**
