@@ -35,7 +35,7 @@ IMAGE_EXTENSIONS  = [".jpg", ".JPG", ".jpeg", ".JPEG", ".tif", ".TIF"]
 MIN_L_DETECTED = 8
 MIN_L_REF      = 20
 MIN_PATCHES    = 10   # minimum number of patches that must be detected for calibration to continue
-MAX_DE_AFTER   = 10   # eclude any images where the delta E is greater than 10
+MAX_DE_AFTER   = 10   # Flag any images where the delta E is greater than 10
 
 # BUILD REFERENCE Lab VALUES FROM COLOUR CHECKER
 def build_reference_lab():
@@ -195,7 +195,7 @@ def main():
         ])
         dE_after = float(np.sqrt(((corr_lab - ref_lab)**2).sum(axis=1)).mean())
 
-        quality = ("good"       if best["mean_r2"] > 0.85 and dE_after < 8
+        quality = ("good"       if best["mean_r2"] > 0.85 and dE_after < 6
                    else "acceptable" if best["mean_r2"] > 0.70 and dE_after < MAX_DE_AFTER
                    else "poor")
 
