@@ -33,7 +33,10 @@ abalone_colour_toolkit/
 ├── validation/
 │   ├── colour_calibration/               # Validation of 01_colour_correction_factors.py
 │   ├── lip_segmentation/                 # Validation of 02_segment_lips.py 
-│   └── morphometrics/                    # Validation of 05_abalone_morphometrics.py 
+│   └── morphometrics/                    # Validation of 05_abalone_morphometrics.py
+├── LICENSE.md
+├── REQUIREMENTS.md
+├── requirements.txt
 └── README.md
 ```
 
