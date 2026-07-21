@@ -20,16 +20,24 @@ abalone_colour_toolkit/
 │   ├── 03_extract_lip_colour.py          
 │   ├── 04_collate_colour_data.py        
 │   └── 05_abalone_morphometrics.py       
+├── data_dictionaries/                    # Metadata for each csv output
+│   ├── correction_factors_metadata.csv
+│   ├── summary_metadata.csv
+│   ├── Whole_Color_Measurements_metadata.csv
+│   ├── collated_colour_data_metadata.csv
+│   └── abalone_measurements_metadata.csv
 ├── segmentation_model_weights/
 │   └── best.pt                           # Trained YOLO weights for lip segmentation
 ├── test_run/                             # Example outputs from a test run of ten images
-│   ├── images/raw_images/                # 10 .JPG test images
+│   ├── images/
+│   │   ├── raw_images/                   # 10 .JPG test images
+│   │   ├── lip_cutouts/                  # segmented, polygons, colour_threshold_qc
+│   │   └── abalone_annotated/            # 10 annotated morphometrics images
 │   ├── correction_factors.csv
 │   ├── Whole_Color_Measurements.csv
 │   ├── abalone_measurements_test.csv
 │   ├── collated_colour_data.csv
-│   ├── summary.csv
-│   └── *_metadata.csv                    # Metadata for each csv output
+│   └── summary.csv
 ├── validation/
 │   ├── colour_calibration/               # Validation of 01_colour_correction_factors.py
 │   ├── lip_segmentation/                 # Validation of 02_segment_lips.py 
@@ -185,6 +193,12 @@ This repository is released under the MIT License. See `LICENSE.md` for the full
 Citation details will be added upon submission. Please contact the corresponding author to use this repository in the meantime.
 
 ---
+
+## Contact
+
+Rebecca Pedler
+[rebecca.pedler@yumbah.com][rebecca.pedler@flinders.edu.au]
+Yumbah Aquaculture / Flinders University
 
 ## Contact
 
